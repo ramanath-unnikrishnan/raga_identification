@@ -1,10 +1,11 @@
 close all
-clear all
 clc
-r = 130.81;
+prompt='Enter the pitch-';
+r=input(prompt);
+[z,fs]=audioread('g2scale.wav');
+%r = 98;
 notes= [r,r*(2^(1/12)), r*(2^(2/12)), r*(2^(3/12)),r*(2^(4/12)),r*(2^(5/12)),r*(2^(6/12)),r*(2^(7/12)),r*(2^(8/12)),r*(2^(9/12)),r*(2^(10/12)),r*(2^(11/12))];
 num_of_notes = 12;
-max_num_of_notes_in_raga = 7;
 
 %database
 ragam = [r (r*(2^(1/12))) (r*(2^(2/12))) (r*(2^(5/12))) (r*(2^(7/12))) (r*(2^(8/12))) (r*(2^(9/12)));
@@ -79,76 +80,103 @@ ragam = [r (r*(2^(1/12))) (r*(2^(2/12))) (r*(2^(5/12))) (r*(2^(7/12))) (r*(2^(8/
           r (r*(2^(3/12))) (r*(2^(4/12))) (r*(2^(6/12))) (r*(2^(7/12))) (r*(2^(9/12))) (r*(2^(10/12)));%34
           r (r*(2^(3/12))) (r*(2^(4/12))) (r*(2^(6/12))) (r*(2^(7/12))) (r*(2^(9/12))) (r*(2^(11/12)));%35
          r (r*(2^(3/12))) (r*(2^(4/12))) (r*(2^(6/12))) (r*(2^(7/12))) (r*(2^(10/12))) (r*(2^(11/12)))];
-     
-raga = 29;
-selected_raga = ragam(raga,:);
-fprintf('checking raga %d : \n',raga);
-disp(ragam(raga,:));
-recObj = audiorecorder;
-disp('start recording:'); 
-recordblocking(recObj,10);
-disp('stop recording');
-myRecording = getaudiodata(recObj);
-audiowrite('savi.wav', myRecording, 8000, 'BitsPerSample',32);
-[z,fs]=audioread('savi.wav');
+max_num_of_ragas = 72;
+
+inp_notes = [0 0 0 0 0 0 0];
+max_num_of_input_notes = 7;
 
 %program to remove silence from the audio
 
 %step 1- Break the signal into frames of 0.5s
-frame_duration = 0.07;
+frame_duration = 0.1;
 frame_len = frame_duration*fs;
 N = length(z);
 num_frames = floor(N/frame_len);
 
+new_sig = zeros(N,1);
 count = 0;
-tolerance = 5;
-
-current_time = 0;
-inp_notes_sung = [0 0 0 0 0 0 0];
+inp_note_index = 1;
+tolerance = 2;
 
 for k = 1:num_frames
-   %extract a frame of audio
-   frame = z( (k-1)*frame_len+1 : frame_len*k);
-   %Step 2-identify non-silent region as regions with amplitude > 0.01
-   max_val = max(frame);
+       %extract a frame of audio
+       frame = z( (k-1)*frame_len+1 : frame_len*k);
+       %Step 2-identify non-silent region as regions with amplitude > 0.01
+       max_val = max(frame);
+       
+       if(max_val>0.0001)
+           %frame is not silent
+           
+           count=count+1;
+           new_sig((count-1)*frame_len+1 : frame_len*count)=frame;
+           f0=pitch(frame,fs);
+           
+           %mapping each f0 to quantized notes
+           for j = 1 : num_of_notes
+               if(abs(f0 - notes(j)) <= tolerance)
+                    f0 = notes(j);
+                    break;
 
-   if(max_val > 0.00001)
-       %frame is not silent
-   
-       count=count+1;
-       f0 = pitch(frame,fs);
-   
-       %mapping each f0 to quantized notes
-       for j = 1 : num_of_notes
-           if(abs(f0 - notes(j)) <= tolerance)
-               f0 = notes(j);
-               contains_freq = 0;
-               for n = 1 : max_num_of_notes_in_raga
-                   if(f0 == selected_raga(n))
-                        contains_freq = 1;
-                        inp_notes_sung(n) = selected_raga(n);
-                        break;
-                   end
                end
-
-               %if freq is not present in selected raga
-               if(contains_freq == 0)
-                    fprintf('err freq : %f :  at time : %fs\n',f0,current_time);
-               end
-                break;
+           end
+           
+           %to check if f0 is already stored in inp_notes
+           contains = 0;
+           for j = 1 : max_num_of_input_notes
+                if(inp_notes(j) == f0) 
+                    contains = 1;
+                    break;
+                end
+           end
+           
+           %if inp_notes does not contain f0 then store in inp_notes
+           if(contains == 0)
+                inp_notes(inp_note_index) = f0;
+                inp_note_index = inp_note_index + 1;
            end
        end
-   end
-   %updating time
-   current_time = current_time + frame_duration;
-   %end of frame 
 end
+fprintf('quantized inp notes : \n')
+disp(inp_notes);
 
-disp('sung notes');
-disp(inp_notes_sung);
-for j = 1 : max_num_of_notes_in_raga
-    if(inp_notes_sung(j) == 0)
-        fprintf('you did not sing %f of raga %d \n',selected_raga(j),raga);
+%finding the raga from database corresponding to inp_freq
+inp_raga = -1;
+%looping through each raga
+for i = 1 : max_num_of_ragas
+    
+    found_raga = 0;
+    %looping throug each freq of a raga
+    for j = 1 : max_num_of_input_notes
+        %checking current freq with inp freq
+        contains = 0;
+        for k = 1 : max_num_of_input_notes
+            if( ragam(i,j) == inp_notes(k))
+                contains = 1;
+                found_raga = 1;
+                break;
+            end
+        end
+        
+%this part is another way of checking for raga:  if we are at last element
+%of a raga (j = max) and if that freq is present in input freq (contains = 1)
+%---------------------------------------------------------------------------
+%         if(j == max_num_of_input_notes && contains == 1)
+%             found_raga = 1;
+%         end
+                
+        if(contains == 0)
+            found_raga = 0;
+            break;
+        end
+    end
+    if(found_raga == 1)
+        inp_raga = i;
+        break;
     end
 end
-    
+
+if(inp_raga ~= -1)
+    fprintf('\nfound raga %d\n',inp_raga);
+end
+
+   
